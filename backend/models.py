@@ -1,0 +1,416 @@
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from typing import Optional, List, Dict
+from datetime import datetime, timezone
+from enum import Enum
+import uuid
+
+class UserRole(str, Enum):
+    ADMIN = "admin"
+    USER = "user"
+
+class DepositStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class WithdrawalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class StakingStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+class PaymentMethod(str, Enum):
+    USDT_TRC20 = "usdt_trc20"
+    USDT_BEP20 = "usdt_bep20"
+    USDT = "usdt"  # Legacy support
+    BANK = "bank"
+
+class TransactionType(str, Enum):
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+    ROI = "roi"
+    COMMISSION = "commission"
+    STAKING = "staking"
+    PROMOTION_SELF = "promotion_self"
+    PROMOTION_REFERRAL = "promotion_referral"
+
+class PromotionStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    EXPIRED = "expired"
+
+# Promotion Models
+class PromotionCreate(BaseModel):
+    name: str
+    start_date: str
+    end_date: str
+    self_deposit_reward_percent: float = Field(ge=0, le=100)
+    direct_referral_reward_percent: float = Field(ge=0, le=100)
+    is_active: bool = True
+
+class Promotion(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    promotion_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    start_date: str
+    end_date: str
+    self_deposit_reward_percent: float
+    direct_referral_reward_percent: float
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class PromotionReward(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    reward_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    promotion_id: str
+    user_id: str
+    deposit_id: str
+    reward_type: str  # "self" or "referral"
+    deposit_amount: float
+    reward_percent: float
+    reward_amount: float
+    from_user_id: Optional[str] = None  # For referral rewards
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Email Verification Model
+class EmailVerification(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    verification_id: str
+    email: EmailStr
+    code: str
+    expires_at: datetime
+    is_used: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class EmailVerificationRequest(BaseModel):
+    email: EmailStr
+
+class EmailVerificationVerify(BaseModel):
+    email: EmailStr
+    code: str
+
+# User Models
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    user_id: str
+    email: EmailStr
+    full_name: str
+    password_hash: str
+    role: UserRole = UserRole.USER
+    level: int = 1  # Package level (1-6)
+    total_investment: float = 0.0  # Historical all-time deposits
+    wallet_balance: float = 0.0  # Available balance for staking/withdrawal (ROI + Commission + returned capital)
+    roi_balance: float = 0.0  # ROI earnings
+    commission_balance: float = 0.0  # Commission earnings
+    staked_amount: float = 0.0  # Currently active staked amount
+    deposited_capital: float = 0.0  # LEVEL CALCULATION: Original deposits minus withdrawals (excludes ROI)
+    fund_balance: float = 0.0  # FUND WALLET: Deposit funds available for staking (decreases when staked)
+    country: str = ""
+    city: str = ""
+    whatsapp: str = ""
+    referral_code: str
+    referred_by: Optional[str] = None
+    direct_referrals: List[str] = Field(default_factory=list)
+    indirect_referrals: List[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_roi_date: Optional[datetime] = None
+    is_active: bool = True
+    is_email_verified: bool = False
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    full_name: str
+    password: str
+    referral_code: str  # Required - must have referral
+    country: str = ""
+    city: str = ""
+    whatsapp: str = ""
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    user_id: str
+    email: str
+    full_name: str
+    role: str
+    level: int
+    total_investment: float
+    wallet_balance: float
+    roi_balance: float
+    commission_balance: float
+    fund_balance: float = 0.0  # Fund wallet for deposits available to stake
+    referral_code: str
+    referred_by: Optional[str]
+    direct_referrals: List[str]
+    indirect_referrals: List[str]
+    created_at: datetime
+    is_email_verified: bool = True
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+    confirm_password: str
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+# Unified Investment Package Model (formerly MembershipPackage + StakingPackage combined)
+class InvestmentPackage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    package_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""  # e.g., "Gold NFT", "Platinum NFT"
+    level: int  # 1-6
+    min_investment: float  # Minimum investment amount
+    max_investment: float = 0.0  # Maximum investment amount
+    daily_roi: float  # Daily ROI percentage
+    annual_roi: float = 0.0  # Auto-calculated from daily_roi
+    duration_days: int = 365  # Investment duration
+    
+    # Level requirements for promotion
+    direct_required: int = 0  # Direct referrals needed
+    level_2_required: int = 0  # Level 2 referrals needed
+    level_3_required: int = 0  # Level 3 referrals needed
+    level_4_required: int = 0  # Level 4 referrals needed
+    level_5_required: int = 0  # Level 5 referrals needed
+    level_6_required: int = 0  # Level 6 referrals needed
+    
+    # Commission rates for each level (when user is at this package level)
+    # Level 1: Direct commission on DEPOSIT
+    commission_direct: float = 0.0  # Direct commission % on deposit
+    
+    # Level 2-6: Profit Share on ROI (not deposit)
+    profit_share_level_2: float = 0.0  # Level 2 profit share %
+    profit_share_level_3: float = 0.0  # Level 3 profit share %
+    profit_share_level_4: float = 0.0  # Level 4 profit share %
+    profit_share_level_5: float = 0.0  # Level 5 profit share %
+    profit_share_level_6: float = 0.0  # Level 6 profit share %
+    
+    # Legacy fields for backward compatibility
+    commission_level_2: float = 0.0
+    commission_level_3: float = 0.0
+    commission_level_4: float = 0.0
+    commission_level_5: float = 0.0
+    commission_level_6: float = 0.0
+    
+    # Levels enabled for commissions (checkboxes)
+    levels_enabled: List[int] = Field(default_factory=lambda: [1, 2, 3])  # Which levels earn commission
+    
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Keep old models for backward compatibility
+class MembershipPackage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    package_id: str
+    level: int
+    min_investment: float
+    daily_roi: float
+    annual_roi: float
+    duration_days: int = 365
+    direct_required: int = 0
+    indirect_required: int = 0
+    commission_lv_a: float = 0.0
+    commission_lv_b: float = 0.0
+    commission_lv_c: float = 0.0
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class StakingPackage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    staking_id: str
+    tier: int
+    min_amount: float
+    max_amount: float
+    daily_yield: float
+    total_supply: int
+    remaining_supply: int
+    lock_period_days: int
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class Deposit(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    deposit_id: str
+    user_id: str
+    amount: float
+    payment_method: PaymentMethod
+    transaction_hash: Optional[str] = None
+    screenshot_url: Optional[str] = None
+    status: DepositStatus = DepositStatus.PENDING
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+class DepositCreate(BaseModel):
+    amount: float
+    payment_method: PaymentMethod
+    transaction_hash: Optional[str] = None
+    screenshot_url: Optional[str] = None
+
+class Withdrawal(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    withdrawal_id: str
+    user_id: str
+    amount: float
+    wallet_address: str
+    status: WithdrawalStatus = WithdrawalStatus.PENDING
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    transaction_hash: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+class WithdrawalCreate(BaseModel):
+    amount: float
+    wallet_address: str
+
+# User Staking (when user activates staking)
+class Staking(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    staking_entry_id: str
+    user_id: str
+    package_id: str  # Reference to InvestmentPackage
+    amount: float
+    daily_roi: float
+    duration_days: int
+    start_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    end_date: datetime
+    status: StakingStatus = StakingStatus.ACTIVE
+    total_earned: float = 0.0
+    last_yield_date: Optional[datetime] = None
+    capital_returned: bool = False  # Whether capital was returned after completion
+
+class StakingCreate(BaseModel):
+    package_id: str  # ID of the investment package
+    amount: float
+
+class StakingCreateLegacy(BaseModel):
+    staking_id: str
+    amount: float
+    lock_period_days: int
+
+class Commission(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    commission_id: str
+    user_id: str
+    from_user_id: str
+    from_user_name: Optional[str] = None
+    amount: float
+    commission_type: str  # "LEVEL_1", "LEVEL_2", etc.
+    level_depth: int  # 1-6
+    percentage: float
+    source_type: str = "staking"  # "staking" or "deposit"
+    source_id: str  # staking_entry_id or deposit_id
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ROITransaction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    transaction_id: str
+    user_id: str
+    staking_entry_id: Optional[str] = None
+    amount: float
+    roi_percentage: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class ChargeType(str, Enum):
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
+
+class AdminSettings(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    settings_id: str = "default"
+    usdt_wallet_address: str = ""  # Legacy - TRC20 address
+    usdt_trc20_address: str = ""  # TRC20 Network wallet address
+    usdt_bep20_address: str = ""  # BEP20 Network wallet address
+    qr_code_image: Optional[str] = None  # Legacy QR code
+    qr_code_trc20: Optional[str] = None  # QR code for TRC20
+    qr_code_bep20: Optional[str] = None  # QR code for BEP20
+    withdrawal_dates: List[int] = Field(default_factory=lambda: [1, 15])  # Days of month when withdrawal allowed
+    community_star_target: float = 28.0
+    community_star_bonus_min: float = 100.0
+    community_star_bonus_max: float = 1000.0
+    # Deposit/Withdrawal Charges
+    deposit_charge_type: str = "percentage"  # "percentage" or "fixed"
+    deposit_charge_value: float = 0.0  # Percentage or fixed amount
+    withdrawal_charge_type: str = "percentage"  # "percentage" or "fixed"
+    withdrawal_charge_value: float = 0.0  # Percentage or fixed amount
+    # Withdrawal Limits
+    min_withdrawal_amount: float = 10.0  # Minimum withdrawal amount
+    max_withdrawal_amount: float = 10000.0  # Maximum withdrawal amount
+    # ROI Settings
+    roi_distribution_hour: int = 0
+    roi_distribution_minute: int = 0
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DashboardStats(BaseModel):
+    total_balance: float  # Total withdrawable (roi + commission)
+    roi_balance: float
+    commission_balance: float
+    total_investment: float  # Historical - kept for backward compatibility
+    deposited_capital: float = 0.0  # Current deposit in system (for level calculation)
+    active_staking: float  # Currently staked amount
+    current_level: int
+    daily_roi_percentage: float
+    direct_referrals: int
+    indirect_referrals: int
+    total_commissions: float
+    pending_withdrawals: int
+    # Promotion progress fields
+    next_level_requirements: Optional[dict] = None
+    team_counts_by_level: Optional[dict] = None
+    promotion_progress: Optional[dict] = None
+
+class AdminDashboardStats(BaseModel):
+    total_users: int
+    total_deposits: float
+    total_withdrawals: float
+    pending_deposits: int
+    pending_withdrawals: int
+    total_active_stakes: int
+    total_commissions_paid: float
+    total_roi_paid: float
+
+# Transaction History for unified view
+class Transaction(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    
+    transaction_id: str
+    user_id: str
+    type: TransactionType
+    amount: float
+    status: str
+    description: str
+    reference_id: Optional[str] = None  # deposit_id, withdrawal_id, etc.
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    metadata: Dict = Field(default_factory=dict)

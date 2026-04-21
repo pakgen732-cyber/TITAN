@@ -1,0 +1,26 @@
+{
+  "short_name": "TITAN",
+  "name": "TITAN VENTURES - Digital Assets Community Platform",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "logo192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "logo512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0a0a0f",
+  "background_color": "#0a0a0f",
+  "description": "TITAN VENTURES - A modern digital-assets community platform with transparent tier structures."
+}
